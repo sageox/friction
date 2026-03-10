@@ -1,0 +1,29 @@
+{
+  "repo_id": "repo_019ce879-8b43-762e-b866-415c3253114f",
+  "type": "git",
+  "init_at": "2026-03-13T18:33:25Z",
+  "init_by_email": "rsnodgrass@gmail.com",
+  "init_by_name": "Ryan Snodgrass",
+  "repo_salt": "a0f2c74c94ba5fff501d5670c2c416fb44d21891",
+  "endpoint": "https://sageox.ai",
+  "fingerprint": {
+    "first_commit": "a0f2c74c94ba5fff501d5670c2c416fb44d21891",
+    "monthly_checkpoints": {
+      "2026-03": "a0f2c74c94ba5fff501d5670c2c416fb44d21891"
+    },
+    "ancestry_samples": [
+      "a0f2c74c94ba5fff501d5670c2c416fb44d21891"
+    ],
+    "remote_hashes": [
+      "sha256:8cc6c36e4991b071135144f8f645e993e60a4d4ce00915b06be3cae5603c1cfd"
+    ]
+  },
+  "team_urls": {
+    "Ryan's SageOx Memos": "https://git.sageox.ai/sageox-team_urrazzo9th/team-context.git",
+    "SageOx": "https://git.sageox.ai/sageox-team_jihjpfkt8b/team-context.git",
+    "SageOx Internal": "https://git.sageox.ai/sageox-team_xlcr6yzpec/team-context.git"
+  },
+  "urls_cached_at": "2026-03-13T18:33:26Z",
+  "version": "0.4.1",
+  "updated_at": "2026-03-13T18:33:26Z"
+}
