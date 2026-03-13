@@ -262,6 +262,15 @@ func (f *Friction) Close() {
 	f.collector.Stop()
 }
 
+// UpdateCatalog replaces the catalog data with the provided data.
+// No-op if the catalog is not configured.
+func (f *Friction) UpdateCatalog(data CatalogData) error {
+	if f.catalog == nil {
+		return nil
+	}
+	return f.catalog.Update(data)
+}
+
 // Stats returns current telemetry statistics.
 // Returns zero-value Stats if telemetry is not configured.
 func (f *Friction) Stats() Stats {
