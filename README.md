@@ -8,7 +8,7 @@ Extracted from the [ox CLI](https://github.com/sageox/ox/). Built by [SageOx](ht
 
 > **See it in action:** [The Hive is Buzzing](https://sageox.ai/blog/the-hive-is-buzzing) — how we use frictionx to fine-tune CLIs for coding agents.
 
-[![frictionx dashboard](https://sageox.ai/blog/the-hive-is-buzzing/dashboard.png)](https://sageox.ai/blog/the-hive-is-buzzing)
+[![frictionx dashboard](https://sageox.ai/blog/friction-dashboard.png)](https://sageox.ai/blog/the-hive-is-buzzing)
 
 ## The problem
 
