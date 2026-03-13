@@ -2,20 +2,24 @@
 
 CLI friction detection, correction, and telemetry for Go command-line tools.
 
-When users or AI agents type the wrong command, `frictionx` detects the error, suggests corrections, and optionally auto-executes high-confidence fixes. Friction events are collected for analytics, revealing "desire paths" — patterns where users consistently expect something that doesn't exist yet.
+When users or AI agents type the wrong command, frictionx detects the error, suggests corrections, and optionally auto-executes high-confidence fixes. Friction events reveal **desire paths** — patterns where users consistently expect something that doesn't exist yet.
 
-Built by [SageOx](https://sageox.ai). Extracted from the [ox CLI](https://github.com/sageox/ox).
+Extracted from the [ox CLI](https://github.com/sageox/ox/). Built by [SageOx](https://sageox.ai).
 
-## Why this exists
+> **See it in action:** [The Hive is Buzzing](https://sageox.ai/blog/the-hive-is-buzzing) — how we use frictionx to fine-tune CLIs for coding agents.
 
-Traditional CLIs fail hard on unknown commands:
+[![frictionx dashboard](https://sageox.ai/blog/the-hive-is-buzzing/dashboard.png)](https://sageox.ai/blog/the-hive-is-buzzing)
+
+## The problem
+
+CLIs fail hard on unknown commands:
 
 ```
 Error: unknown command "agent-list"
 Run 'mycli --help' for usage.
 ```
 
-frictionx transforms failure into guidance:
+frictionx turns failure into guidance:
 
 ```
 Error: unknown command "agent-list"
@@ -24,21 +28,7 @@ Did you mean?
     mycli agent list
 ```
 
-For AI agents, this is even more powerful. Coding agents (Claude Code, Cursor, Copilot, etc.) frequently hallucinate CLI commands and flags. Instead of failing hard, frictionx detects intent, suggests the right command, and teaches the agent the correct syntax — all without permanent aliases cluttering the interface.
-
-The term "desire path" comes from urban planning — the worn trails across lawns where people actually walk. When many users or agents make the same "mistake," that's a signal about how the tool *should* work. frictionx surfaces these patterns through analytics so you can make data-driven decisions about your CLI's design.
-
-**[Read the full design philosophy →](https://github.com/sageox/ox/blob/main/docs/ai/specs/friction-philosophy.md)**
-
-## Features
-
-- **Error detection** — Classifies CLI errors (unknown commands, flags, typos, missing args)
-- **Smart suggestions** — Catalog remaps, token fixes, and Levenshtein fallback
-- **Auto-execute** — High-confidence catalog matches run automatically
-- **Agent-aware** — Detects human vs AI agent context, formats output accordingly
-- **Privacy-first** — Built-in secret redaction, path bucketing, field truncation
-- **Telemetry** — Background event collection with rate limiting and catalog sync
-- **Pluggable** — Works with any CLI framework via adapters (Cobra included)
+Coding agents (Claude Code, Cursor, Copilot) frequently hallucinate CLI commands. frictionx detects intent, suggests the right command, and teaches the agent the correct syntax — without permanent aliases cluttering the interface.
 
 ## Install
 
@@ -46,13 +36,12 @@ The term "desire path" comes from urban planning — the worn trails across lawn
 go get github.com/sageox/frictionx
 ```
 
-## Quick Start
+## Quick start
 
 ```go
 package main
 
 import (
-    "fmt"
     "os"
 
     "github.com/sageox/frictionx"
@@ -64,140 +53,121 @@ func main() {
     root := &cobra.Command{Use: "mycli"}
     // ... add subcommands ...
 
-    // set up friction handling
     adapter := frictioncobra.NewCobraAdapter(root)
-    catalog := frictionx.NewFrictionCatalog("mycli")
-    handler := frictionx.NewHandler(adapter, catalog)
+    f := frictionx.New(adapter,
+        frictionx.WithCatalog("mycli"),
+    )
+    defer f.Close()
 
-    err := root.Execute()
-    if err != nil {
-        result := handler.HandleWithAutoExecute(os.Args[1:], err)
-        if result != nil && result.Suggestion != nil {
-            fmt.Fprintln(os.Stderr, frictionx.FormatSuggestion(result.Suggestion, false))
+    if err := root.Execute(); err != nil {
+        result := f.Handle(os.Args[1:], err)
+        if result != nil {
+            result.Emit(false) // human-friendly output
         }
         os.Exit(1)
     }
 }
 ```
 
-## Architecture
+## How it works
 
-```
-┌─────────────────────────────────────────────────────┐
-│                  CLI Command                         │
-│          User types: mycli agent prine               │
-└──────────────────────┬──────────────────────────────┘
-                       │ error
-                       ▼
-┌─────────────────────────────────────────────────────┐
-│              frictionx.Handler                       │
-│  1. Parse error (CLIAdapter)                         │
-│  2. Suggest correction (SuggestionEngine)            │
-│     catalog remap → token fix → levenshtein          │
-│  3. Detect actor (ActorDetector)                     │
-│  4. Build FrictionEvent (with redaction)             │
-│  5. Determine action (auto-execute vs suggest)       │
-└──────────────────────┬──────────────────────────────┘
-                       │
-              ┌────────┴────────┐
-              ▼                 ▼
-     Auto-execute          Suggest only
-     (confidence >= 0.85)  (show "did you mean?")
-              │                 │
-              └────────┬────────┘
-                       ▼
-┌─────────────────────────────────────────────────────┐
-│           frictionx.Collector (optional)             │
-│  Buffer events → periodic flush → API submission     │
-│  Rate limiting via X-Friction-Sample-Rate            │
-│  Catalog updates from server responses               │
-└─────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    A["User types: mycli agent prine"] -->|error| B[frictionx.Handle]
+    B --> C{Suggestion chain}
+    C -->|1. Catalog remap| D[Full command remap]
+    C -->|2. Token fix| E[Single token correction]
+    C -->|3. Levenshtein| F[Edit-distance guess]
+    D & E & F --> G{Confidence >= 0.85<br/>and auto_execute?}
+    G -->|yes| H[Auto-execute corrected command]
+    G -->|no| I["Show 'did you mean?'"]
+    H & I --> J[Record friction event]
 ```
 
-## Components
+## Suggestion chain
 
-### Core Library (`github.com/sageox/frictionx`)
+Suggestions are tried in priority order:
 
-Zero external dependencies. Provides:
+1. **Catalog remap** — Full command remaps from learned patterns (highest confidence)
+2. **Token fix** — Single-token corrections from the catalog
+3. **Levenshtein** — Edit-distance fallback for typos (never auto-executed)
 
-| Type | Purpose |
-|------|---------|
-| `Handler` | Orchestrates error parsing, suggestion, and event creation |
-| `FrictionCatalog` | Thread-safe catalog with literal + regex command mappings |
-| `SuggestionEngine` | Chains catalog -> token -> levenshtein suggestions |
-| `Collector` | Background buffering and periodic API submission |
-| `Client` | HTTP client with rate limiting and catalog sync |
-| `RingBuffer` | Bounded circular buffer with deduplication |
-| `CatalogCache` | On-disk catalog persistence |
+## Adapters
 
-### Extension Points
+frictionx works with any CLI framework via the `CLIAdapter` interface. Built-in adapters:
 
-| Interface | Purpose | Default |
-|-----------|---------|---------|
-| `CLIAdapter` | Parse errors from your CLI framework | Use `adapters/cobra` |
-| `ActorDetector` | Detect human vs AI agent context | `EnvActorDetector` (checks `CI` env) |
-| `Redactor` | Strip secrets from event data | `NoOpRedactor` / use `redactors/secrets` |
-| `Suggester` | Custom suggestion sources | Catalog + Levenshtein chain |
+| Adapter | Import |
+|---------|--------|
+| [Cobra](https://github.com/spf13/cobra) | `github.com/sageox/frictionx/adapters/cobra` |
+| [Kong](https://github.com/alecthomas/kong) | `github.com/sageox/frictionx/adapters/kong` |
+| [urfave/cli](https://github.com/urfave/cli) | `github.com/sageox/frictionx/adapters/urfavecli` |
 
-### Cobra Adapter (`github.com/sageox/frictionx/adapters/cobra`)
+### Custom adapter
 
-Ready-to-use adapter for [spf13/cobra](https://github.com/spf13/cobra) CLIs.
+Implement the `CLIAdapter` interface:
 
-### Secret Redactor (`github.com/sageox/frictionx/redactors/secrets`)
+```go
+type CLIAdapter interface {
+    CommandNames() []string
+    FlagNames(command string) []string
+    ParseError(err error) *ParsedError
+}
+```
 
-25 built-in patterns covering AWS, GitHub, GitLab, Slack, Stripe, JWTs, connection strings, and more.
+## Options
+
+```go
+f := frictionx.New(adapter,
+    frictionx.WithCatalog("mycli"),                              // enable learned corrections
+    frictionx.WithTelemetry("https://api.example.com", "1.0"),   // report friction events
+    frictionx.WithAuth(func() string { return token }),          // bearer token for telemetry
+    frictionx.WithRedactor(secrets.New()),                       // redact secrets from events
+    frictionx.WithActorDetector(myDetector),                     // custom human/agent detection
+    frictionx.WithCachePath("/tmp/mycli-catalog.json"),          // persist catalog to disk
+    frictionx.WithIsEnabled(func() bool { return true }),        // toggle telemetry
+)
+defer f.Close()
+```
+
+## Agent output
+
+frictionx formats output differently for agents vs humans:
+
+**Human** (stderr):
+```
+Did you mean?
+    mycli agent list
+```
+
+**Agent** (stdout JSON):
+```json
+{"_corrected": {"was": "agent-list", "now": "agent list", "note": "Use 'mycli agent list' next time"}}
+```
+
+Agents see corrections in their context and learn the correct syntax for subsequent calls.
+
+## Secret redaction
+
+Built-in redactor with 25+ patterns (AWS, GitHub, Slack, Stripe, JWTs, connection strings):
 
 ```go
 import "github.com/sageox/frictionx/redactors/secrets"
 
-redactor := secrets.New()
-handler := frictionx.NewHandler(adapter, catalog, frictionx.WithRedactor(redactor))
+f := frictionx.New(adapter, frictionx.WithRedactor(secrets.New()))
 ```
 
-## Try it out
+## Privacy
 
-The repo includes example binaries you can build and run to see frictionx in action — a sample telemetry server and a CLI that talks to it. These are learning tools, not production services.
+- Secrets redacted via pluggable `Redactor` interface
+- File paths bucketed to categories, not captured verbatim
+- Error messages truncated and sanitized
+- No user identity or repository names captured
 
-### Example server
+## Related projects
 
-A minimal HTTP server that collects friction events into SQLite and serves a dashboard.
-
-```bash
-# build and run the example server
-go run github.com/sageox/frictionx/cmd/frictionx-server@latest --port=8080 --db=./friction.db
-```
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/v1/friction` | POST | Submit friction events |
-| `/api/v1/friction/status` | GET | Health + event count |
-| `/api/v1/friction/summary` | GET | Aggregated patterns |
-| `/api/v1/friction/catalog` | GET/PUT | Manage catalog |
-| `/dashboard` | GET | HTML dashboard |
-
-### Example CLI
-
-A companion CLI that reports friction events to the server and queries for summaries.
-
-```bash
-# build and run the example CLI
-go run github.com/sageox/frictionx/cmd/frictionx@latest --help
-
-# report a friction event
-go run github.com/sageox/frictionx/cmd/frictionx@latest report \
-  --kind=unknown-command --input="mycli agent prine" --command=agent
-
-# check server status
-go run github.com/sageox/frictionx/cmd/frictionx@latest status
-
-# view friction summary
-go run github.com/sageox/frictionx/cmd/frictionx@latest summary --since=24h --limit=20
-
-# manage catalog
-go run github.com/sageox/frictionx/cmd/frictionx@latest catalog get
-go run github.com/sageox/frictionx/cmd/frictionx@latest catalog set --file=catalog.json
-```
+- **[ox](https://github.com/sageox/ox/)** — The CLI that frictionx was extracted from
+- **[agentx](https://github.com/sageox/agentx/)** — Discover and adapt CLI behavior to specific coding agents
 
 ## License
 
-MIT -- see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
