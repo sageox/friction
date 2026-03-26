@@ -4,10 +4,10 @@ import (
 	"testing"
 )
 
-// testRedactor implements Redactor for testing.
-type testRedactor struct{}
+// passthruRedactor implements Redactor for testing (returns input unchanged).
+type passthruRedactor struct{}
 
-func (testRedactor) Redact(input string) string {
+func (passthruRedactor) Redact(input string) string {
 	return input
 }
 
