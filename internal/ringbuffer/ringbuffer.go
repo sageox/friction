@@ -92,6 +92,31 @@ func (rb *RingBuffer[T]) Count() int {
 	return rb.count
 }
 
+// Refill re-inserts events into the buffer (e.g., after a failed flush).
+// Events are added via the normal Add path, respecting capacity and dedup.
+// This is a batch Add() under a single lock acquisition.
+func (rb *RingBuffer[T]) Refill(items []T) {
+	rb.mu.Lock()
+	defer rb.mu.Unlock()
+
+	for _, item := range items {
+		key := rb.keyFunc(item)
+		if rb.seen[key] {
+			continue
+		}
+		if rb.count == rb.capacity {
+			oldKey := rb.keyFunc(rb.items[rb.head])
+			delete(rb.seen, oldKey)
+		}
+		rb.items[rb.head] = item
+		rb.head = (rb.head + 1) % rb.capacity
+		if rb.count < rb.capacity {
+			rb.count++
+		}
+		rb.seen[key] = true
+	}
+}
+
 // Capacity returns the buffer capacity.
 func (rb *RingBuffer[T]) Capacity() int {
 	return rb.capacity

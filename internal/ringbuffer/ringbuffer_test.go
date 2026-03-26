@@ -388,3 +388,129 @@ func TestRingBuffer_CustomKeyFunc(t *testing.T) {
 		t.Errorf("Count() = %d, want 2 (different key should be distinct)", rb.Count())
 	}
 }
+
+
+func TestRingBuffer_Refill_Basic(t *testing.T) {
+	rb := New(5, func(s string) string { return s })
+
+	rb.Add("cmd1")
+	rb.Add("cmd2")
+	rb.Add("cmd3")
+
+	drained := rb.Drain()
+	if len(drained) != 3 {
+		t.Fatalf("Drain() returned %d items, want 3", len(drained))
+	}
+	if rb.Count() != 0 {
+		t.Fatalf("Count() after Drain() = %d, want 0", rb.Count())
+	}
+
+	rb.Refill(drained)
+	if rb.Count() != 3 {
+		t.Errorf("Count() after Refill() = %d, want 3", rb.Count())
+	}
+
+	result := rb.Drain()
+	if len(result) != 3 {
+		t.Fatalf("Drain() after Refill() returned %d items, want 3", len(result))
+	}
+	for i, want := range []string{"cmd1", "cmd2", "cmd3"} {
+		if result[i] != want {
+			t.Errorf("result[%d] = %q, want %q", i, result[i], want)
+		}
+	}
+}
+
+func TestRingBuffer_Refill_WithNewEvents(t *testing.T) {
+	rb := New(10, func(s string) string { return s })
+
+	rb.Add("old1")
+	rb.Add("old2")
+
+	drained := rb.Drain()
+
+	// new events arrive while submitting
+	rb.Add("new1")
+	rb.Add("new2")
+
+	// submit failed - refill old events
+	rb.Refill(drained)
+
+	if rb.Count() != 4 {
+		t.Errorf("Count() = %d, want 4 (2 new + 2 refilled)", rb.Count())
+	}
+
+	result := rb.Drain()
+	if len(result) != 4 {
+		t.Fatalf("Drain() returned %d items, want 4", len(result))
+	}
+	// new events were added first, then old events refilled after
+	expected := []string{"new1", "new2", "old1", "old2"}
+	for i, want := range expected {
+		if result[i] != want {
+			t.Errorf("result[%d] = %q, want %q", i, result[i], want)
+		}
+	}
+}
+
+func TestRingBuffer_Refill_OverflowEvictsOldest(t *testing.T) {
+	rb := New(3, func(s string) string { return s })
+
+	rb.Add("old1")
+	rb.Add("old2")
+	rb.Add("old3")
+
+	drained := rb.Drain()
+
+	// buffer fills with new events while submitting
+	rb.Add("new1")
+	rb.Add("new2")
+	rb.Add("new3")
+
+	// submit failed - refill, but buffer is full so oldest (new events) get evicted
+	rb.Refill(drained)
+
+	if rb.Count() != 3 {
+		t.Errorf("Count() = %d, want 3 (capacity)", rb.Count())
+	}
+
+	result := rb.Drain()
+	// old events overwrite new events (FIFO eviction)
+	expected := []string{"old1", "old2", "old3"}
+	for i, want := range expected {
+		if result[i] != want {
+			t.Errorf("result[%d] = %q, want %q", i, result[i], want)
+		}
+	}
+}
+
+func TestRingBuffer_Refill_DedupRespected(t *testing.T) {
+	rb := New(10, func(s string) string { return s })
+
+	rb.Add("cmd1")
+	rb.Add("cmd2")
+
+	drained := rb.Drain()
+
+	// same key arrives as a new event while submitting
+	rb.Add("cmd1")
+
+	// refill - cmd1 should be deduped since it is already in the buffer
+	rb.Refill(drained)
+
+	if rb.Count() != 2 {
+		t.Errorf("Count() = %d, want 2 (cmd1 deduped, cmd2 added)", rb.Count())
+	}
+
+	result := rb.Drain()
+	if len(result) != 2 {
+		t.Fatalf("Drain() returned %d items, want 2", len(result))
+	}
+	// cmd1 was already in buffer (from new Add), cmd2 added by Refill
+	if result[0] != "cmd1" {
+		t.Errorf("result[0] = %q, want %q", result[0], "cmd1")
+	}
+	if result[1] != "cmd2" {
+		t.Errorf("result[1] = %q, want %q", result[1], "cmd2")
+	}
+}

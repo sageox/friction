@@ -597,3 +597,76 @@ func TestCollector_Flush_WithAuth(t *testing.T) {
 		t.Errorf("Authorization = %q, want %q", receivedAuth, "Bearer secret-token")
 	}
 }
+
+func TestCollector_Flush_RequeuesOnSubmitError(t *testing.T) {
+	// use an unreachable server to trigger a network error
+	fc := newFrictionCollector(collectorConfig{
+		Endpoint:      "http://127.0.0.1:1", // connection refused
+		Version:       "1.0.0",
+		FlushCooldown: 1 * time.Millisecond,
+	})
+
+	fc.Record(FrictionEvent{Kind: FailureUnknownCommand, Input: "net-err-1"})
+	fc.Record(FrictionEvent{Kind: FailureUnknownFlag, Input: "net-err-2"})
+
+	fc.flush()
+
+	// events should be re-queued after network error
+	if got := fc.buffer.Count(); got != 2 {
+		t.Errorf("buffer count after failed flush = %d, want 2 (events should be re-queued)", got)
+	}
+}
+
+func TestCollector_Flush_RequeuesOnNon2xx(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+	}{
+		{"401 unauthorized", http.StatusUnauthorized},
+		{"403 forbidden", http.StatusForbidden},
+		{"500 internal server error", http.StatusInternalServerError},
+		{"503 service unavailable", http.StatusServiceUnavailable},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.statusCode)
+			}))
+			defer srv.Close()
+
+			fc := newFrictionCollector(collectorConfig{
+				Endpoint:      srv.URL,
+				Version:       "1.0.0",
+				FlushCooldown: 1 * time.Millisecond,
+			})
+
+			fc.Record(FrictionEvent{Kind: FailureUnknownCommand, Input: "status-test"})
+			fc.flush()
+
+			if got := fc.buffer.Count(); got != 1 {
+				t.Errorf("buffer count after %d response = %d, want 1 (events should be re-queued)", tt.statusCode, got)
+			}
+		})
+	}
+}
+
+func TestCollector_Flush_DoesNotRequeueOn2xx(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	fc := newFrictionCollector(collectorConfig{
+		Endpoint:      srv.URL,
+		Version:       "1.0.0",
+		FlushCooldown: 1 * time.Millisecond,
+	})
+
+	fc.Record(FrictionEvent{Kind: FailureUnknownCommand, Input: "success-test"})
+	fc.flush()
+
+	if got := fc.buffer.Count(); got != 0 {
+		t.Errorf("buffer count after successful flush = %d, want 0", got)
+	}
+}
