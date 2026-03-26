@@ -196,7 +196,8 @@ func (f *frictionCollector) flush() {
 
 	resp, err := f.client.Submit(ctx, events, opts)
 	if err != nil {
-		f.logger.Debug("friction submit failed", "error", err, "events", len(events))
+		f.logger.Debug("friction submit failed, re-queuing events", "error", err, "events", len(events))
+		f.buffer.Refill(events)
 		return
 	}
 
@@ -209,7 +210,8 @@ func (f *frictionCollector) flush() {
 			}
 		}
 	} else {
-		f.logger.Debug("friction submit returned non-success", "events", len(events), "status", resp.StatusCode)
+		f.logger.Debug("friction submit returned non-success, re-queuing events", "events", len(events), "status", resp.StatusCode)
+		f.buffer.Refill(events)
 	}
 }
 
