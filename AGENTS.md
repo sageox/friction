@@ -3,6 +3,14 @@
 
 # AI Agent Instructions
 
+## Releases
+
+- Every version bump MUST have a tagged GitHub release with human-readable notes
+- Format: `gh release create v0.X.Y --title "v0.X.Y" --notes "..."`
+- Group changes by: Added, Changed, Fixed
+- No commit hashes in release notes
+- Tag on main only after all tests pass
+
 ## Code Coverage
 - Target: 85%+ overall statement coverage
 - No test theater: tests must catch real bugs, edge cases, and failure modes
